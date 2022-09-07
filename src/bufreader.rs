@@ -74,7 +74,7 @@ impl<R: Read> BufReader<R> {
         }
     }
 
-    pub fn with_capacity_align<Align>(capacity: usize, inner: R) -> Self {
+    pub fn with_capacity_aligned<Align>(capacity: usize, inner: R) -> Self {
         BufReader {
             inner,
             buf: Buffer::with_capacity_aligned::<Align>(capacity),
