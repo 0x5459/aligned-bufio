@@ -1,6 +1,5 @@
 use std::alloc::Allocator;
 use std::alloc::Global;
-use std::error;
 use std::fmt;
 use std::io::{self, ErrorKind, IoSlice, Seek, SeekFrom, Write};
 use std::ptr;
@@ -176,21 +175,6 @@ impl<W: Write, A: Allocator> BufWriter<W, A> {
             }
         }
         Ok(())
-    }
-
-    /// Buffer some data without flushing it, regardless of the size of the
-    /// data. Writes as much as possible without exceeding capacity. Returns
-    /// the number of bytes written.
-    fn write_to_buf(&mut self, buf: &[u8]) -> usize {
-        let available = self.spare_capacity();
-        let amt_to_buffer = available.min(buf.len());
-
-        // SAFETY: `amt_to_buffer` is <= buffer's spare capacity by construction.
-        unsafe {
-            self.write_to_buffer_unchecked(&buf[..amt_to_buffer]);
-        }
-
-        amt_to_buffer
     }
 
     /// Gets a reference to the underlying writer.
@@ -372,71 +356,6 @@ impl<W: Write, A: Allocator> BufWriter<W, A> {
     #[inline]
     fn spare_capacity(&self) -> usize {
         self.buf.capacity() - self.buf.len()
-    }
-}
-
-/// Error returned for the buffered data from `BufWriter::into_parts`, when the underlying
-/// writer has previously panicked.  Contains the (possibly partly written) buffered data.
-///
-/// # Example
-///
-/// ```
-/// use std::io::{self, BufWriter, Write};
-/// use std::panic::{catch_unwind, AssertUnwindSafe};
-///
-/// struct PanickingWriter;
-/// impl Write for PanickingWriter {
-///   fn write(&mut self, buf: &[u8]) -> io::Result<usize> { panic!() }
-///   fn flush(&mut self) -> io::Result<()> { panic!() }
-/// }
-///
-/// let mut stream = BufWriter::new(PanickingWriter);
-/// write!(stream, "some data").unwrap();
-/// let result = catch_unwind(AssertUnwindSafe(|| {
-///     stream.flush().unwrap()
-/// }));
-/// assert!(result.is_err());
-/// let (recovered_writer, buffered_data) = stream.into_parts();
-/// assert!(matches!(recovered_writer, PanickingWriter));
-/// assert_eq!(buffered_data.unwrap_err().into_inner(), b"some data");
-/// ```
-pub struct WriterPanicked<A: Allocator> {
-    buf: Vec<u8, A>,
-}
-
-impl<A: Allocator> WriterPanicked<A> {
-    /// Returns the perhaps-unwritten data.  Some of this data may have been written by the
-    /// panicking call(s) to the underlying writer, so simply writing it again is not a good idea.
-    #[must_use = "`self` will be dropped if the result is not used"]
-    pub fn into_inner(self) -> Vec<u8, A> {
-        self.buf
-    }
-
-    const DESCRIPTION: &'static str =
-        "BufWriter inner writer panicked, what data remains unwritten is not known";
-}
-
-impl<A: Allocator> error::Error for WriterPanicked<A> {
-    #[allow(deprecated, deprecated_in_future)]
-    fn description(&self) -> &str {
-        Self::DESCRIPTION
-    }
-}
-
-impl<A: Allocator> fmt::Display for WriterPanicked<A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", Self::DESCRIPTION)
-    }
-}
-
-impl<A: Allocator> fmt::Debug for WriterPanicked<A> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("WriterPanicked")
-            .field(
-                "buffer",
-                &format_args!("{}/{}", self.buf.len(), self.buf.capacity()),
-            )
-            .finish()
     }
 }
 
